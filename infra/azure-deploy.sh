@@ -16,7 +16,7 @@
 set -euo pipefail
 
 # ---------- variáveis — ajuste antes de rodar ----------
-LOCATION="westeurope"
+LOCATION="canadacentral"
 RESOURCE_GROUP="rg-traco-optica"
 SUFFIX="$(openssl rand -hex 3)"              # evita colisão de nomes globais únicos
 
@@ -60,20 +60,10 @@ az postgres flexible-server create \
   --output none
 echo "[2/6] Servidor Postgres '$PG_SERVER_NAME' criado."
 
-# Permite que serviços Azure (o próprio App Service) acessem o Postgres.
-# Em produção, prefira restringir isso a um VNet/Private Endpoint em vez de 0.0.0.0-0.0.0.0.
-az postgres flexible-server firewall-rule create \
-  --resource-group "$RESOURCE_GROUP" \
-  --name "$PG_SERVER_NAME" \
-  --rule-name "AllowAzureServices" \
-  --start-ip-address 0.0.0.0 \
-  --end-ip-address 0.0.0.0 \
-  --output none
-
 az postgres flexible-server db create \
   --resource-group "$RESOURCE_GROUP" \
   --server-name "$PG_SERVER_NAME" \
-  --database-name "$PG_DB_NAME" \
+  --name "$PG_DB_NAME" \
   --output none
 echo "    Banco '$PG_DB_NAME' criado dentro do servidor."
 
@@ -93,7 +83,7 @@ az webapp create \
   --resource-group "$RESOURCE_GROUP" \
   --plan "$APP_SERVICE_PLAN" \
   --name "$WEBAPP_NAME" \
-  --runtime "NODE:20-lts" \
+  --runtime "NODE|24-lts" \
   --output none
 echo "[4/6] Web App '$WEBAPP_NAME' criado."
 
@@ -109,7 +99,7 @@ az webapp config appsettings set \
     CORS_ORIGIN="*" \
     PAYMENT_PROVIDER="mock" \
     SCM_DO_BUILD_DURING_DEPLOYMENT="true" \
-    WEBSITE_NODE_DEFAULT_VERSION="~20" \
+    WEBSITE_NODE_DEFAULT_VERSION="~24" \
   --output none
 
 # App Service Linux injeta a porta esperada via variável PORT — o backend já lê
