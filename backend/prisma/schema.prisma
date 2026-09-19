@@ -1,0 +1,85 @@
+// Schema do banco de dados da Traço Óptica.
+// Provider: postgresql — em produção (Azure Database for PostgreSQL) e em
+// desenvolvimento local (via docker-compose.yml na raiz do projeto).
+// O disco do App Service é efêmero, então SQLite não é uma opção viável em produção.
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id        String   @id @default(uuid())
+  nome      String
+  email     String   @unique
+  telefone  String?
+  senha     String // hash bcrypt, nunca texto puro
+  isAdmin   Boolean  @default(false)
+  createdAt DateTime @default(now())
+
+  orders Order[]
+
+  @@map("users")
+}
+
+model Product {
+  id        String   @id @default(uuid())
+  nome      String
+  categoria String // "armacao" | "sol"
+  formato   String // round | square | cat | aviator | rect | hex
+  material  String
+  cor       String
+  genero    String // Unissex | Feminino | Masculino
+  preco     Float
+  rosto     String // formato de rosto indicado
+  descricao String
+  ativo     Boolean  @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  orderItems OrderItem[]
+
+  @@map("products")
+}
+
+model Order {
+  id              String   @id @default(uuid())
+  user            User     @relation(fields: [userId], references: [id])
+  userId          String
+  total           Float
+  status          String   @default("em_preparacao") // em_preparacao | enviado | entregue | cancelado
+  paymentMethod   String // "pix" | "cartao"
+  paymentStatus   String   @default("pendente") // pendente | aprovado | recusado
+  paymentRef      String? // id retornado pelo provedor de pagamento
+  enderecoEntrega String?
+  createdAt       DateTime @default(now())
+
+  items OrderItem[]
+
+  @@map("orders")
+}
+
+model OrderItem {
+  id        String @id @default(uuid())
+  order     Order  @relation(fields: [orderId], references: [id])
+  orderId   String
+  product   Product @relation(fields: [productId], references: [id])
+  productId String
+  qty       Int
+  precoUnit Float // preço travado no momento da compra
+
+  // Receita óptica (todos opcionais — armação pode ser vendida sem grau)
+  rxOdEsf  String?
+  rxOdCil  String?
+  rxOdEixo String?
+  rxOeEsf  String?
+  rxOeCil  String?
+  rxOeEixo String?
+  rxDnp    String?
+
+  @@map("order_items")
+}

@@ -1,0 +1,33 @@
+name: Deploy backend (Azure App Service)
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "backend/**"
+      - ".github/workflows/backend-deploy.yml"
+  workflow_dispatch: {}
+
+env:
+  AZURE_WEBAPP_NAME: SUBSTITUA-PELO-NOME-DO-WEBAPP # saída do infra/azure-deploy.sh (WEBAPP_NAME)
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Configurar Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      # O Azure App Service (SCM_DO_BUILD_DURING_DEPLOYMENT=true) roda "npm install"
+      # e o "postinstall" (prisma generate) do lado de lá — não precisamos buildar aqui.
+      - name: Deploy no App Service
+        uses: azure/webapps-deploy@v3
+        with:
+          app-name: ${{ env.AZURE_WEBAPP_NAME }}
+          publish-profile: ${{ secrets.AZURE_WEBAPP_PUBLISH_PROFILE }}
+          package: backend
