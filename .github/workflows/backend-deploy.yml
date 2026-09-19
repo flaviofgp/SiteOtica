@@ -9,7 +9,7 @@ on:
   workflow_dispatch: {}
 
 env:
-  AZURE_WEBAPP_NAME: SUBSTITUA-PELO-NOME-DO-WEBAPP # saída do infra/azure-deploy.sh (WEBAPP_NAME)
+  AZURE_WEBAPP_NAME: traco-optica-api-4df179 # saída do infra/azure-deploy.sh (WEBAPP_NAME)
 
 jobs:
   deploy:
