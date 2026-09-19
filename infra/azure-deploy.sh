@@ -2,35 +2,30 @@
 # Provisiona a infraestrutura da Traço Óptica na Azure:
 #   - Resource Group
 #   - Azure Database for PostgreSQL (Flexible Server, tier Burstable B1ms)
-#   - App Service (Linux, Node 20) para o backend
-#   - Static Web App (Free) para o frontend
+#   - App Service (Linux, Node 24) para o backend
+#   - (frontend é servido pelo próprio backend, pasta backend/public)
 #
 # Pré-requisitos: Azure CLI instalado e logado (`az login`).
 # Uso:
 #   chmod +x infra/azure-deploy.sh
 #   ./infra/azure-deploy.sh
-#
-# O script é idempotente na maior parte (usa `|| true` onde já existir),
-# mas é pensado para rodar uma vez, na criação do ambiente.
 
 set -euo pipefail
 
 # ---------- variáveis — ajuste antes de rodar ----------
 LOCATION="canadacentral"
 RESOURCE_GROUP="rg-traco-optica"
-SUFFIX="$(openssl rand -hex 3)"              # evita colisão de nomes globais únicos
+SUFFIX="$(openssl rand -hex 3)"
 
 APP_SERVICE_PLAN="plan-traco-optica"
-WEBAPP_NAME="traco-optica-api-${SUFFIX}"      # precisa ser único globalmente na Azure
-WEBAPP_SKU="B1"                               # troque para "F1" (free) só para teste, sem custo
+WEBAPP_NAME="traco-optica-api-${SUFFIX}"
+WEBAPP_SKU="B1"
 
-PG_SERVER_NAME="traco-optica-db-${SUFFIX}"    # precisa ser único globalmente na Azure
+PG_SERVER_NAME="traco-optica-db-${SUFFIX}"
 PG_ADMIN_USER="tracoadmin"
 PG_ADMIN_PASSWORD="$(openssl rand -base64 24 | tr -d '=+/' | cut -c1-24)"
 PG_DB_NAME="traco_optica"
-PG_SKU="Standard_B1ms"                        # tier burstable, mais barato
-
-SWA_NAME="traco-optica-web-${SUFFIX}"
+PG_SKU="Standard_B1ms"
 
 JWT_SECRET="$(openssl rand -hex 32)"
 
@@ -42,7 +37,7 @@ echo
 
 # ---------- 1. Resource Group ----------
 az group create --name "$RESOURCE_GROUP" --location "$LOCATION" --output none
-echo "[1/6] Resource group '$RESOURCE_GROUP' pronto."
+echo "[1/5] Resource group '$RESOURCE_GROUP' pronto."
 
 # ---------- 2. Postgres Flexible Server ----------
 az postgres flexible-server create \
@@ -58,7 +53,7 @@ az postgres flexible-server create \
   --public-access 0.0.0.0 \
   --yes \
   --output none
-echo "[2/6] Servidor Postgres '$PG_SERVER_NAME' criado."
+echo "[2/5] Servidor Postgres '$PG_SERVER_NAME' criado."
 
 az postgres flexible-server db create \
   --resource-group "$RESOURCE_GROUP" \
@@ -77,7 +72,7 @@ az appservice plan create \
   --is-linux \
   --sku "$WEBAPP_SKU" \
   --output none
-echo "[3/6] App Service Plan '$APP_SERVICE_PLAN' ($WEBAPP_SKU) criado."
+echo "[3/5] App Service Plan '$APP_SERVICE_PLAN' ($WEBAPP_SKU) criado."
 
 az webapp create \
   --resource-group "$RESOURCE_GROUP" \
@@ -85,7 +80,7 @@ az webapp create \
   --name "$WEBAPP_NAME" \
   --runtime "NODE|24-lts" \
   --output none
-echo "[4/6] Web App '$WEBAPP_NAME' criado."
+echo "[4/5] Web App '$WEBAPP_NAME' criado."
 
 # ---------- 4. Configurações do Web App ----------
 az webapp config appsettings set \
@@ -102,36 +97,28 @@ az webapp config appsettings set \
     WEBSITE_NODE_DEFAULT_VERSION="~24" \
   --output none
 
-# App Service Linux injeta a porta esperada via variável PORT — o backend já lê
-# process.env.PORT em src/index.js, então isso é suficiente.
-# Roda as migrações do Prisma automaticamente a cada start do container.
 az webapp config set \
   --resource-group "$RESOURCE_GROUP" \
   --name "$WEBAPP_NAME" \
   --startup-file "npx prisma migrate deploy && node src/index.js" \
   --output none
-echo "[5/6] Variáveis de ambiente e startup command configurados."
-echo "    ATENÇÃO: CORS_ORIGIN está como '*' por enquanto — depois que o Static"
-echo "    Web App tiver domínio, troque para a URL exata dele (mais seguro)."
-
-# ---------- 5. Static Web App (frontend) ----------
-az staticwebapp create \
-  --resource-group "$RESOURCE_GROUP" \
-  --name "$SWA_NAME" \
-  --location "$LOCATION" \
-  --sku Free \
-  --output none
-echo "[6/6] Static Web App '$SWA_NAME' criado."
+echo "[5/5] Variáveis de ambiente e startup command configurados."
+echo "    O frontend agora é servido pelo próprio backend (pasta backend/public),"
+echo "    então o mesmo endereço do Web App abre o site inteiro."
 
 # ---------- resumo ----------
 WEBAPP_HOST=$(az webapp show --resource-group "$RESOURCE_GROUP" --name "$WEBAPP_NAME" --query defaultHostName -o tsv)
-SWA_HOST=$(az staticwebapp show --resource-group "$RESOURCE_GROUP" --name "$SWA_NAME" --query defaultHostname -o tsv)
-SWA_TOKEN=$(az staticwebapp secrets list --resource-group "$RESOURCE_GROUP" --name "$SWA_NAME" --query "properties.apiKey" -o tsv)
 PUBLISH_PROFILE_FILE="./${WEBAPP_NAME}.PublishSettings"
 az webapp deployment list-publishing-profiles \
   --resource-group "$RESOURCE_GROUP" \
   --name "$WEBAPP_NAME" \
   --xml > "$PUBLISH_PROFILE_FILE"
+
+az webapp config appsettings set \
+  --resource-group "$RESOURCE_GROUP" \
+  --name "$WEBAPP_NAME" \
+  --settings CORS_ORIGIN="https://${WEBAPP_HOST}" \
+  --output none
 
 cat <<EOF
 
@@ -139,8 +126,7 @@ cat <<EOF
  Provisionamento concluído
 =================================================================
 
-Backend (API):     https://${WEBAPP_HOST}
-Frontend (site):   https://${SWA_HOST}
+Site (frontend + backend juntos): https://${WEBAPP_HOST}
 Banco Postgres:    ${PG_SERVER_NAME}.postgres.database.azure.com
 
 Guarde essas credenciais em um lugar seguro (gerenciador de senhas),
@@ -151,7 +137,7 @@ elas não aparecem de novo depois:
   JWT_SECRET gerado:    ${JWT_SECRET}
 
 -----------------------------------------------------------------
- Próximo passo: configurar os secrets do GitHub Actions
+ Próximo passo: configurar o secret do GitHub Actions
 -----------------------------------------------------------------
 
 1. Publish profile do App Service foi salvo em:
@@ -160,17 +146,8 @@ elas não aparecem de novo depois:
      Settings → Secrets and variables → Actions → New repository secret
      Nome:  AZURE_WEBAPP_PUBLISH_PROFILE
 
-2. Token de deploy do Static Web App (guarde com cuidado):
-     ${SWA_TOKEN}
-   Cole no secret do GitHub:
-     Nome:  AZURE_STATIC_WEB_APPS_API_TOKEN
-
-3. Depois de configurar os dois secrets, dê push na branch main —
-   os workflows em .github/workflows/ cuidam do resto.
-
-4. Depois que o site estiver no ar, volte e rode:
-     az webapp config appsettings set --resource-group ${RESOURCE_GROUP} \\
-       --name ${WEBAPP_NAME} --settings CORS_ORIGIN="https://${SWA_HOST}"
-   para travar o CORS no domínio real em vez de "*".
+2. Depois de configurar o secret, dê push na branch main —
+   o workflow em .github/workflows/backend-deploy.yml cuida do resto
+   (backend e frontend juntos, já que agora são a mesma aplicação).
 
 EOF
